@@ -5,7 +5,7 @@ import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 
 import { Button } from "@/components/ui/button";
 
-const Navbar = (): JSX.Element => {
+const Navbar = () => {
   return (
     <nav className="sticky top-0 z-30 w-full border-b border-white/10 bg-black/60 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4 lg:px-12">
