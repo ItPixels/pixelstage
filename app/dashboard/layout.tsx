@@ -73,7 +73,7 @@ const DashboardLayout = ({
   children,
 }: {
   children: React.ReactNode;
-}): JSX.Element => {
+}) => {
   return (
     <div className="flex min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white">
       <aside className="hidden w-64 shrink-0 border-r border-white/10 bg-black/60 px-4 py-6 backdrop-blur lg:flex">
