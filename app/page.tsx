@@ -47,7 +47,7 @@ const features: Feature[] = [
   },
 ];
 
-const HomePage = (): JSX.Element => {
+const HomePage = () => {
   return (
     <div className="relative isolate min-h-screen overflow-hidden bg-gradient-to-b from-black via-zinc-950 to-black text-white">
       <div className="absolute inset-0 -z-10 opacity-60 blur-3xl" aria-hidden>
