@@ -29,7 +29,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     "svix-signature": svixSignature,
   };
 
-  const wh = new Webhook(webhookSecret);
+  const wh = new Webhook(webhookSecret!);
 
   let evt: {
     type: string;
