@@ -1,14 +1,14 @@
 "use server";
 
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
 import Stripe from "stripe";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-12-15.clover", // Та самая новая версия!
+  apiVersion: "2025-12-15.clover",
 });
 
-export async function createStripeSession() {
+// Теперь функция принимает аргументы: credits и price
+export async function createStripeSession(credits: number, price: number) {
   const { userId } = await auth();
   const user = await currentUser();
 
@@ -16,10 +16,11 @@ export async function createStripeSession() {
     throw new Error("Unauthorized");
   }
 
-  // Создаем сессию оплаты
+  const domain = process.env.NEXT_PUBLIC_URL || "http://localhost:3000";
+
   const session = await stripe.checkout.sessions.create({
-    success_url: `${process.env.NEXT_PUBLIC_URL}/dashboard`,
-    cancel_url: `${process.env.NEXT_PUBLIC_URL}/dashboard/credits`,
+    success_url: `${domain}/dashboard`,
+    cancel_url: `${domain}/dashboard/credits`,
     payment_method_types: ["card"],
     mode: "payment",
     billing_address_collection: "auto",
@@ -29,20 +30,21 @@ export async function createStripeSession() {
         price_data: {
           currency: "usd",
           product_data: {
-            name: "Credits Package",
-            description: "Purchase credits to generate content",
+            name: `${credits} Credits`,
+            description: `Purchase ${credits} credits`,
           },
-          unit_amount: 1000, // $10.00
+          // Stripe принимает цену в центах, поэтому умножаем доллары на 100
+          unit_amount: Math.round(price * 100), 
         },
         quantity: 1,
       },
     ],
     metadata: {
       userId: userId,
+      credits: credits.toString(),
     },
   });
 
-  if (session.url) {
-    redirect(session.url);
-  }
+  // Возвращаем объект, который ждет страница credits/page.tsx
+  return { success: true, url: session.url! };
 }
