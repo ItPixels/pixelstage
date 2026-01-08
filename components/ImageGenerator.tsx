@@ -18,7 +18,7 @@ import { generateImage, type GenerateImageResult } from "@/app/actions/generateI
 
 type AspectRatio = "1:1" | "16:9" | "9:16";
 
-const ImageGenerator = (): JSX.Element => {
+const ImageGenerator = () => {
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
   const [isLoading, setIsLoading] = useState(false);
