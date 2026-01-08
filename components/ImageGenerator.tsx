@@ -75,7 +75,7 @@ const ImageGenerator = () => {
         <div className="flex items-center gap-4">
           <Select
             value={aspectRatio}
-            onValueChange={(value) => setAspectRatio(value as AspectRatio)}
+            onValueChange={(value: string) => setAspectRatio(value as AspectRatio)}
             disabled={isLoading}
           >
             <SelectTrigger className="w-[140px] bg-white/5 border-white/10 text-white focus:border-emerald-400/50">
