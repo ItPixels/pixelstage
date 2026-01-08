@@ -35,7 +35,7 @@ const pricingTiers: PricingTier[] = [
   },
 ];
 
-const CreditsPage = (): JSX.Element => {
+const CreditsPage = () => {
   const router = useRouter();
   const [loadingTier, setLoadingTier] = useState<number | null>(null);
 
