@@ -34,7 +34,7 @@ const navItems: NavItem[] = [
   { label: "Профиль", href: "/dashboard/profile", icon: User },
 ];
 
-const NavLinks = ({ onNavigate }: { onNavigate?: () => void }): JSX.Element => {
+const NavLinks = ({ onNavigate }: { onNavigate?: () => void }) => {
   const pathname = usePathname();
 
   return (
