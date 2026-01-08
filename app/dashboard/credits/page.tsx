@@ -46,7 +46,7 @@ const CreditsPage = () => {
       const result = await createStripeSession(tier.credits, tier.price);
 
       if (result.success) {
-        router.push(result.url);
+        router.push(result.url!);
       } else {
         toast.error(result.error || "Ошибка при создании сессии оплаты");
         setLoadingTier(null);
