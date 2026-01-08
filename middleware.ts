@@ -1,29 +1,19 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
+// Указываем, какие маршруты нужно защищать (dashboard и всё что внутри)
 const isProtectedRoute = createRouteMatcher(["/dashboard(.*)"]);
-const isPublicRoute = createRouteMatcher([
-  "/",
-  "/api/webhooks(.*)",
-]);
 
-export default clerkMiddleware((auth, req) => {
-  // Landing page и webhooks должны быть публичными
-  if (isPublicRoute(req)) {
-    return;
-  }
-
-  // Защищаем dashboard маршруты
+export default clerkMiddleware(async (auth, req) => {
   if (isProtectedRoute(req)) {
-    auth().protect();
+    await auth().protect();
   }
 });
 
 export const config = {
   matcher: [
-    // Skip Next.js internals and all static files, unless found in search params
-    "/((?!_next|[^?]*\\.(?:html?|ico|png|jpg|jpeg|gif|svg|ttf|woff|woff2)).*)",
-    // Always run for API routes
-    "/(api|trpc)(.*)",
+    // Исключаем статические файлы и системные пути Next.js
+    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    // Всегда запускаем middleware для API маршрутов
+    '/(api|trpc)(.*)',
   ],
 };
-
