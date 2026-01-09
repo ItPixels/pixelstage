@@ -3,7 +3,11 @@
 import { auth } from "@clerk/nextjs/server";
 import Replicate from "replicate";
 
-import { decreaseUserBalance, getUserBalance, supabase } from "@/lib/supabase";
+import {
+  decreaseUserBalance,
+  getUserBalance,
+  getSupabaseAdmin,
+} from "@/lib/supabase";
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
@@ -73,6 +77,7 @@ export const generate = async (
 
       if (!imageUrl || typeof imageUrl !== "string") {
         // Если генерация не удалась, возвращаем кредит
+        const supabase = getSupabaseAdmin();
         await supabase
           .from("users")
           .update({ balance: balance })
@@ -82,6 +87,7 @@ export const generate = async (
       }
     } catch (replicateError) {
       // Если генерация не удалась, возвращаем кредит
+      const supabase = getSupabaseAdmin();
       await supabase
         .from("users")
         .update({ balance: balance })
@@ -96,6 +102,7 @@ export const generate = async (
 
     // 5. Получили URL картинки
     // 6. Сохраняем запись в таблицу generated_images
+    const supabase = getSupabaseAdmin();
     const { error: insertError } = await supabase
       .from("generated_images")
       .insert({

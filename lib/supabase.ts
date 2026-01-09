@@ -1,20 +1,45 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+/**
+ * Получить Supabase admin клиент (server-only, использует SERVICE_ROLE_KEY)
+ * @returns Supabase клиент с admin правами
+ * @throws Error если отсутствуют необходимые env переменные
+ */
+export const getSupabaseAdmin = (): SupabaseClient => {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseUrl || !supabaseServiceRoleKey) {
-  throw new Error(
-    "Missing Supabase environment variables. Please check NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.",
-  );
-}
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    throw new Error(
+      "Missing Supabase environment variables. Please check NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.",
+    );
+  }
 
-export const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-});
+  return createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+};
+
+/**
+ * Получить публичный Supabase клиент (использует ANON_KEY)
+ * @returns Supabase клиент с публичными правами
+ * @throws Error если отсутствуют необходимые env переменные
+ */
+export const getSupabaseClient = (): SupabaseClient => {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error(
+      "Missing Supabase environment variables. Please check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+    );
+  }
+
+  return createClient(supabaseUrl, supabaseAnonKey);
+};
 
 /**
  * Получить баланс пользователя по Clerk ID
@@ -24,6 +49,8 @@ export const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
 export const getUserBalance = async (
   clerkId: string,
 ): Promise<number | null> => {
+  const supabase = getSupabaseAdmin();
+
   const { data, error } = await supabase
     .from("users")
     .select("balance")
@@ -48,6 +75,8 @@ export const decreaseUserBalance = async (
   clerkId: string,
   amount: number = 1,
 ): Promise<number | null> => {
+  const supabase = getSupabaseAdmin();
+
   // Сначала получаем текущий баланс
   const currentBalance = await getUserBalance(clerkId);
 
@@ -88,6 +117,8 @@ export const increaseUserBalance = async (
   clerkId: string,
   amount: number,
 ): Promise<number | null> => {
+  const supabase = getSupabaseAdmin();
+
   // Сначала получаем текущий баланс
   const currentBalance = await getUserBalance(clerkId);
 
@@ -112,4 +143,3 @@ export const increaseUserBalance = async (
 
   return data?.balance ?? null;
 };
-

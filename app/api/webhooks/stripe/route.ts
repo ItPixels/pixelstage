@@ -3,13 +3,21 @@ import Stripe from "stripe";
 
 import { increaseUserBalance } from "@/lib/supabase";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-12-15.clover",
-});
-
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
-
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  if (!stripeSecretKey || !webhookSecret) {
+    return NextResponse.json(
+      { error: "Missing Stripe environment variables" },
+      { status: 500 },
+    );
+  }
+
+  const stripe = new Stripe(stripeSecretKey, {
+    apiVersion: "2025-12-15.clover",
+  });
+
   const body = await req.text();
   const signature = req.headers.get("stripe-signature");
 
@@ -72,3 +80,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   return NextResponse.json({ received: true }, { status: 200 });
 }
 
+
+// force update

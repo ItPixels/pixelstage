@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Webhook } from "svix";
 
-import { supabase } from "@/lib/supabase";
-
-const webhookSecret = process.env.CLERK_WEBHOOK_SECRET;
-
-if (!webhookSecret) {
-  throw new Error("Missing CLERK_WEBHOOK_SECRET environment variable");
-}
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const webhookSecret = process.env.CLERK_WEBHOOK_SECRET;
+
+  if (!webhookSecret) {
+    return NextResponse.json(
+      { error: "Missing CLERK_WEBHOOK_SECRET environment variable" },
+      { status: 500 },
+    );
+  }
+
   const payload = await req.text();
 
   const svixId = req.headers.get("svix-id");
@@ -29,7 +32,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     "svix-signature": svixSignature,
   };
 
-  const wh = new Webhook(webhookSecret!);
+  const wh = new Webhook(webhookSecret);
 
   let evt: {
     type: string;
@@ -62,6 +65,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 400 },
       );
     }
+
+    const supabase = getSupabaseAdmin();
 
     const { error } = await supabase.from("users").insert({
       id,
