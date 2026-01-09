@@ -14,12 +14,17 @@
     "profile": "Profile"
   },
   "generator": {
-    "title": "AI Image Generator",
-    "prompt": "Enter your prompt",
-    "generate": "Generate Image",
+    "title": "AI Interior Design Generator",
+    "subtitle": "Luxury design solutions for Dubai market",
+    "prompt": "Describe your dream interior",
+    "generate": "Generate Design",
     "generating": "Generating...",
-    "success": "Image generated successfully",
-    "error": "Failed to generate image"
+    "success": "Design generated successfully",
+    "error": "Failed to generate design"
+  },
+  "hero": {
+    "title": "Transform Your Space with AI",
+    "subtitle": "Create stunning interior designs powered by AI. Luxury solutions tailored for Dubai's premium market.",
+    "cta": "Start Creating"
   }
 }
-

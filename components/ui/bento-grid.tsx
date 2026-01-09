@@ -34,6 +34,7 @@ interface BentoGridItemProps {
   description?: string;
   icon?: ReactNode;
   size?: "default" | "wide" | "tall" | "large";
+  children?: ReactNode;
 }
 
 /**
@@ -47,6 +48,7 @@ export function BentoGridItem({
   description,
   icon,
   size = "default",
+  children,
 }: BentoGridItemProps) {
   const sizeClasses = {
     default: "md:col-span-1 md:row-span-1",
@@ -99,6 +101,9 @@ export function BentoGridItem({
           {description}
         </p>
       )}
+
+      {/* Children content */}
+      {children && <div className="mt-4 ms-0 me-0">{children}</div>}
 
       {/* Hover gradient effect */}
       <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
