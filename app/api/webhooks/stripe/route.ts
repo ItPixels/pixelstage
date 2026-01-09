@@ -8,7 +8,7 @@ import { grantCreditsOnce, handleRefund, handleDispute } from "@/lib/payments";
 export const runtime = "nodejs";
 
 /**
- * Extract credits from price lookup_key or metadata
+ * Extract credits from price metadata (required)
  */
 async function getCreditsFromPrice(
   stripe: ReturnType<typeof getStripe>,
@@ -19,37 +19,17 @@ async function getCreditsFromPrice(
       expand: ["product"],
     });
 
-    // Try lookup_key first (e.g., "credits_10" => 10)
-    if (price.lookup_key) {
-      const match = price.lookup_key.match(/^credits_(\d+)$/);
-      if (match) {
-        return parseInt(match[1], 10);
-      }
+    // Require metadata.credits
+    if (!price.metadata?.credits) {
+      return null;
     }
 
-    // Fallback to metadata.credits
-    if (price.metadata?.credits) {
-      const credits = parseInt(price.metadata.credits, 10);
-      if (!isNaN(credits)) {
-        return credits;
-      }
+    const credits = parseInt(price.metadata.credits, 10);
+    if (isNaN(credits) || credits <= 0) {
+      return null;
     }
 
-    // Fallback to product metadata
-    if (
-      price.product &&
-      typeof price.product === "object" &&
-      !price.product.deleted &&
-      "metadata" in price.product &&
-      price.product.metadata?.credits
-    ) {
-      const credits = parseInt(price.product.metadata.credits, 10);
-      if (!isNaN(credits)) {
-        return credits;
-      }
-    }
-
-    return null;
+    return credits;
   } catch (error) {
     console.error(`[Webhook] Failed to retrieve price ${priceId}:`, error);
     return null;
@@ -173,12 +153,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ received: true }, { status: 200 });
       }
 
-      // Get credits from price lookup_key or metadata
+      // Get credits from price metadata (required)
       const credits = await getCreditsFromPrice(stripe, priceId);
 
       if (!credits || credits <= 0) {
         console.error(
-          `[Webhook] Failed to extract credits from price ${priceId}. Check lookup_key or metadata.`,
+          `[Webhook] Failed to extract credits from price ${priceId}. Check metadata.credits.`,
         );
         await storeFailedEvent(
           supabase,

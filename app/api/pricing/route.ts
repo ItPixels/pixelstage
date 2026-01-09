@@ -9,49 +9,13 @@ let cacheTimestamp = 0;
 const CACHE_TTL = 60 * 1000; // 60 seconds
 
 interface PricingPlan {
-  credits: number;
   priceId: string;
-  unitAmount: number;
+  credits: number;
+  amount: number;
   currency: string;
+  productName: string;
   formatted: string;
   isPopular?: boolean;
-}
-
-/**
- * Extract credits from lookup_key or metadata
- */
-function extractCredits(price: any): number | null {
-  // Try lookup_key first (e.g., "credits_10" => 10)
-  if (price.lookup_key) {
-    const match = price.lookup_key.match(/^credits_(\d+)$/);
-    if (match) {
-      return parseInt(match[1], 10);
-    }
-  }
-
-  // Fallback to metadata.credits
-  if (price.metadata?.credits) {
-    const credits = parseInt(price.metadata.credits, 10);
-    if (!isNaN(credits)) {
-      return credits;
-    }
-  }
-
-  // Fallback to product metadata
-  if (
-    price.product &&
-    typeof price.product === "object" &&
-    !price.product.deleted &&
-    "metadata" in price.product &&
-    price.product.metadata?.credits
-  ) {
-    const credits = parseInt(price.product.metadata.credits, 10);
-    if (!isNaN(credits)) {
-      return credits;
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -62,7 +26,7 @@ function formatPrice(amount: number, currency: string): string {
     style: "currency",
     currency: currency.toUpperCase(),
   });
-  return formatter.format(amount / 100);
+  return formatter.format(amount);
 }
 
 export async function GET() {
@@ -75,7 +39,7 @@ export async function GET() {
 
     const stripe = getStripe();
 
-    // Fetch active one-time prices
+    // Fetch active one-time prices with product expansion
     const prices = await stripe.prices.list({
       active: true,
       type: "one_time",
@@ -91,25 +55,55 @@ export async function GET() {
         continue;
       }
 
-      // Extract credits from lookup_key or metadata
-      const credits = extractCredits(price);
-
-      if (!credits) {
-        // Skip prices without credits metadata
+      // Require unit_amount to be present
+      if (!price.unit_amount || price.unit_amount <= 0) {
         continue;
       }
 
-      // Only include credit packs (10, 50, 100, etc.)
-      if (credits <= 0) {
+      // Require credits in metadata
+      if (!price.metadata?.credits) {
         continue;
+      }
+
+      const credits = parseInt(price.metadata.credits, 10);
+      if (isNaN(credits) || credits <= 0) {
+        continue;
+      }
+
+      // Check product is active (if expanded)
+      if (price.product) {
+        if (typeof price.product === "string") {
+          // Product ID only, need to fetch
+          try {
+            const product = await stripe.products.retrieve(price.product);
+            if (!product.active) {
+              continue;
+            }
+          } catch (err) {
+            console.error(`[Pricing] Failed to fetch product ${price.product}:`, err);
+            continue;
+          }
+        } else if (typeof price.product === "object") {
+          // Product object expanded
+          if (price.product.deleted || !price.product.active) {
+            continue;
+          }
+        }
+      }
+
+      // Get product name
+      let productName = "Credits";
+      if (price.product && typeof price.product === "object" && !price.product.deleted) {
+        productName = price.product.name || "Credits";
       }
 
       plans.push({
-        credits,
         priceId: price.id,
-        unitAmount: price.unit_amount || 0,
+        credits,
+        amount: price.unit_amount / 100,
         currency: price.currency || "usd",
-        formatted: formatPrice(price.unit_amount || 0, price.currency || "usd"),
+        productName,
+        formatted: formatPrice(price.unit_amount / 100, price.currency || "usd"),
       });
     }
 
@@ -144,4 +138,3 @@ export async function GET() {
     );
   }
 }
-

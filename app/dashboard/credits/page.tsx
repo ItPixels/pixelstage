@@ -9,10 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type PricingPlan = {
-  credits: number;
   priceId: string;
-  unitAmount: number;
+  credits: number;
+  amount: number;
   currency: string;
+  productName: string;
   formatted: string;
   isPopular?: boolean;
 };
@@ -70,9 +71,6 @@ const CreditsPage = () => {
     setLoadingTier(plan.priceId);
 
     try {
-      // Generate attemptId for idempotency
-      const attemptId = crypto.randomUUID();
-
       const response = await fetch("/api/checkout/create-session", {
         method: "POST",
         headers: {
@@ -80,7 +78,6 @@ const CreditsPage = () => {
         },
         body: JSON.stringify({
           priceId: plan.priceId,
-          attemptId,
         }),
       });
 
@@ -103,7 +100,7 @@ const CreditsPage = () => {
   };
 
   const calculatePricePerCredit = (plan: PricingPlan): number => {
-    return plan.unitAmount / 100 / plan.credits;
+    return plan.amount / plan.credits;
   };
 
   if (loading) {

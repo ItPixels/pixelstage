@@ -5,55 +5,6 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 
-/**
- * Extract credits from price lookup_key or metadata
- */
-async function getCreditsFromPrice(
-  stripe: ReturnType<typeof getStripe>,
-  priceId: string,
-): Promise<number | null> {
-  try {
-    const price = await stripe.prices.retrieve(priceId, {
-      expand: ["product"],
-    });
-
-    // Try lookup_key first
-    if (price.lookup_key) {
-      const match = price.lookup_key.match(/^credits_(\d+)$/);
-      if (match) {
-        return parseInt(match[1], 10);
-      }
-    }
-
-    // Fallback to metadata
-    if (price.metadata?.credits) {
-      const credits = parseInt(price.metadata.credits, 10);
-      if (!isNaN(credits)) {
-        return credits;
-      }
-    }
-
-    // Fallback to product metadata
-    if (
-      price.product &&
-      typeof price.product === "object" &&
-      !price.product.deleted &&
-      "metadata" in price.product &&
-      price.product.metadata?.credits
-    ) {
-      const credits = parseInt(price.product.metadata.credits, 10);
-      if (!isNaN(credits)) {
-        return credits;
-      }
-    }
-
-    return null;
-  } catch (error) {
-    console.error(`[Checkout] Failed to retrieve price ${priceId}:`, error);
-    return null;
-  }
-}
-
 export async function POST(req: NextRequest) {
   try {
     // Check auth
@@ -65,7 +16,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { priceId, attemptId } = body;
+    const { priceId } = body;
 
     if (!priceId) {
       return NextResponse.json(
@@ -85,7 +36,7 @@ export async function POST(req: NextRequest) {
     const stripe = getStripe();
     const supabase = getSupabaseAdmin();
 
-    // Verify price exists and is a credit pack
+    // Verify price exists, is active, and has credits metadata
     const price = await stripe.prices.retrieve(priceId, {
       expand: ["product"],
     });
@@ -97,14 +48,47 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if it's a credit pack (lookup_key or metadata)
-    const credits = await getCreditsFromPrice(stripe, priceId);
-
-    if (!credits || credits <= 0) {
+    // Require credits in metadata
+    if (!price.metadata?.credits) {
       return NextResponse.json(
-        { error: "Price is not a valid credit pack" },
+        { error: "Price is not a valid credit pack (missing metadata.credits)" },
         { status: 400 },
       );
+    }
+
+    const credits = parseInt(price.metadata.credits, 10);
+    if (isNaN(credits) || credits <= 0) {
+      return NextResponse.json(
+        { error: "Invalid credits value in price metadata" },
+        { status: 400 },
+      );
+    }
+
+    // Check product is active
+    if (price.product) {
+      if (typeof price.product === "string") {
+        try {
+          const product = await stripe.products.retrieve(price.product);
+          if (!product.active) {
+            return NextResponse.json(
+              { error: "Product is not active" },
+              { status: 400 },
+            );
+          }
+        } catch (err) {
+          return NextResponse.json(
+            { error: "Failed to verify product" },
+            { status: 400 },
+          );
+        }
+      } else if (typeof price.product === "object") {
+        if (price.product.deleted || !price.product.active) {
+          return NextResponse.json(
+            { error: "Product is not active" },
+            { status: 400 },
+          );
+        }
+      }
     }
 
     // Check for existing open session (within last 30 minutes)
@@ -152,10 +136,8 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_URL ||
       "http://localhost:3000";
 
-    // Generate idempotency key
-    const idempotencyKey = attemptId
-      ? `checkout:${userId}:${priceId}:${attemptId}`
-      : `checkout:${userId}:${priceId}:${Date.now()}`;
+    // Generate idempotency key: userId + priceId (simple and effective)
+    const idempotencyKey = `checkout:${userId}:${priceId}`;
 
     // Create checkout session
     const session = await stripe.checkout.sessions.create(
@@ -189,14 +171,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Record payment attempt
-    await supabase.from("payment_attempts").insert({
-      user_id: userId,
-      price_id: priceId,
-      credits: credits,
-      checkout_session_id: session.id,
-      status: "open",
-    });
+    // Record payment attempt (upsert to handle retries)
+    await supabase.from("payment_attempts").upsert(
+      {
+        user_id: userId,
+        price_id: priceId,
+        credits: credits,
+        checkout_session_id: session.id,
+        status: "open",
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "checkout_session_id",
+      },
+    );
 
     console.log(
       `[Checkout] Created session ${session.id} for user ${userId}, credits=${credits}, priceId=${priceId}`,
@@ -214,4 +202,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
