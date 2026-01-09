@@ -53,15 +53,34 @@ const CreditsPage = () => {
       setError(null);
 
       const response = await fetch("/api/pricing");
+      const data = await response.json();
+
       if (!response.ok) {
-        throw new Error("Failed to load pricing plans");
+        // Server returned error (500, etc.)
+        const errorMessage =
+          data.error || data.message || "Failed to load pricing plans";
+        const hint = data.hint ? ` (${data.hint})` : "";
+        throw new Error(`${errorMessage}${hint}`);
       }
 
-      const data = await response.json();
-      setPlans(data);
-    } catch (err) {
+      // Handle new response structure: { plans, warnings }
+      if (Array.isArray(data)) {
+        // Legacy format (backward compatibility)
+        setPlans(data);
+      } else if (data.plans) {
+        // New format
+        setPlans(data.plans);
+
+        // Log warnings if any
+        if (data.warnings && data.warnings.length > 0) {
+          console.warn("[Pricing] Warnings:", data.warnings);
+        }
+      } else {
+        throw new Error("Invalid response format from pricing API");
+      }
+    } catch (err: any) {
       console.error("Error loading plans:", err);
-      setError("Unable to load plans");
+      setError(err.message || "Unable to load plans");
     } finally {
       setLoading(false);
     }
@@ -116,7 +135,37 @@ const CreditsPage = () => {
     );
   }
 
-  if (error || plans.length === 0) {
+  if (error) {
+    return (
+      <div className="container mx-auto max-w-6xl px-6 py-8">
+        <div className="mb-8 space-y-2">
+          <h1 className="text-3xl font-semibold text-white">Пополнить баланс</h1>
+          <p className="text-zinc-400">
+            Выберите тарифный план и пополните свой баланс кредитов
+          </p>
+        </div>
+
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center space-y-4 max-w-md">
+            <p className="text-red-400 font-medium">{error}</p>
+            <p className="text-sm text-zinc-500">
+              Проверьте конфигурацию Stripe или попробуйте позже
+            </p>
+            <Button
+              onClick={loadPlans}
+              variant="outline"
+              className="bg-white/5 border-white/10 text-white hover:bg-white/10"
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Попробовать снова
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (plans.length === 0) {
     return (
       <div className="container mx-auto max-w-6xl px-6 py-8">
         <div className="mb-8 space-y-2">
@@ -128,14 +177,17 @@ const CreditsPage = () => {
 
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="text-center space-y-4">
-            <p className="text-zinc-400">{error || "No pricing plans available"}</p>
+            <p className="text-zinc-400">No pricing plans available</p>
+            <p className="text-sm text-zinc-500">
+              No active credit packs found in Stripe. Please configure prices in Stripe Dashboard.
+            </p>
             <Button
               onClick={loadPlans}
               variant="outline"
               className="bg-white/5 border-white/10 text-white hover:bg-white/10"
             >
               <RefreshCw className="mr-2 h-4 w-4" />
-              Попробовать снова
+              Обновить
             </Button>
           </div>
         </div>

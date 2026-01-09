@@ -8,7 +8,7 @@ import { grantCreditsOnce, handleRefund, handleDispute } from "@/lib/payments";
 export const runtime = "nodejs";
 
 /**
- * Extract credits from price metadata (required)
+ * Extract credits from price using multiple fallbacks
  */
 async function getCreditsFromPrice(
   stripe: ReturnType<typeof getStripe>,
@@ -19,17 +19,51 @@ async function getCreditsFromPrice(
       expand: ["product"],
     });
 
-    // Require metadata.credits
-    if (!price.metadata?.credits) {
-      return null;
+    // Preferred: metadata.credits
+    if (price.metadata?.credits) {
+      const credits = Number(price.metadata.credits);
+      if (!isNaN(credits) && credits > 0) {
+        return credits;
+      }
     }
 
-    const credits = parseInt(price.metadata.credits, 10);
-    if (isNaN(credits) || credits <= 0) {
-      return null;
+    // Fallback 1: lookup_key (e.g., "credits_10" => 10)
+    if (price.lookup_key) {
+      const match = price.lookup_key.match(/credits[_-]?(\d+)/i);
+      if (match) {
+        const credits = Number(match[1]);
+        if (!isNaN(credits) && credits > 0) {
+          return credits;
+        }
+      }
     }
 
-    return credits;
+    // Fallback 2: product name (e.g., "10 Credits" => 10)
+    if (price.product) {
+      let productName = "";
+      if (typeof price.product === "string") {
+        try {
+          const product = await stripe.products.retrieve(price.product);
+          productName = product.name || "";
+        } catch (err) {
+          // Skip if can't fetch
+        }
+      } else if (typeof price.product === "object" && !price.product.deleted) {
+        productName = "name" in price.product ? price.product.name || "" : "";
+      }
+
+      if (productName) {
+        const match = productName.match(/(\d+)\s*credits?/i);
+        if (match) {
+          const credits = Number(match[1]);
+          if (!isNaN(credits) && credits > 0) {
+            return credits;
+          }
+        }
+      }
+    }
+
+    return null;
   } catch (error) {
     console.error(`[Webhook] Failed to retrieve price ${priceId}:`, error);
     return null;

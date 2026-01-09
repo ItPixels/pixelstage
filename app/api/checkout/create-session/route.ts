@@ -48,18 +48,56 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Require credits in metadata
-    if (!price.metadata?.credits) {
-      return NextResponse.json(
-        { error: "Price is not a valid credit pack (missing metadata.credits)" },
-        { status: 400 },
-      );
+    // Extract credits using fallbacks
+    let credits: number | null = null;
+
+    // Preferred: metadata.credits
+    if (price.metadata?.credits) {
+      credits = Number(price.metadata.credits);
+      if (isNaN(credits) || credits <= 0) {
+        credits = null;
+      }
     }
 
-    const credits = parseInt(price.metadata.credits, 10);
-    if (isNaN(credits) || credits <= 0) {
+    // Fallback 1: lookup_key
+    if (!credits && price.lookup_key) {
+      const match = price.lookup_key.match(/credits[_-]?(\d+)/i);
+      if (match) {
+        credits = Number(match[1]);
+        if (isNaN(credits) || credits <= 0) {
+          credits = null;
+        }
+      }
+    }
+
+    // Fallback 2: product name
+    if (!credits && price.product) {
+      let productName = "";
+      if (typeof price.product === "string") {
+        try {
+          const product = await stripe.products.retrieve(price.product);
+          productName = product.name || "";
+        } catch (err) {
+          // Skip
+        }
+      } else if (typeof price.product === "object" && !price.product.deleted) {
+        productName = "name" in price.product ? price.product.name || "" : "";
+      }
+
+      if (productName) {
+        const match = productName.match(/(\d+)\s*credits?/i);
+        if (match) {
+          credits = Number(match[1]);
+          if (isNaN(credits) || credits <= 0) {
+            credits = null;
+          }
+        }
+      }
+    }
+
+    if (!credits || credits <= 0) {
       return NextResponse.json(
-        { error: "Invalid credits value in price metadata" },
+        { error: "Price is not a valid credit pack (could not determine credits from metadata, lookup_key, or product name)" },
         { status: 400 },
       );
     }
