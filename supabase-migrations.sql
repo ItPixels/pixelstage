@@ -48,6 +48,18 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   processed_at TIMESTAMPTZ
 );
 
+-- 3c. Payment Attempts table (track checkout sessions for cancel/retry)
+CREATE TABLE IF NOT EXISTS payment_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT NOT NULL,
+  price_id TEXT NOT NULL,
+  credits INTEGER NOT NULL,
+  checkout_session_id TEXT UNIQUE,
+  status TEXT NOT NULL DEFAULT 'open', -- open, completed, expired, canceled
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- 4. Ensure users table has balance column
 DO $$ 
 BEGIN
@@ -68,6 +80,9 @@ CREATE INDEX IF NOT EXISTS idx_credit_ledger_payment_id ON credit_ledger(payment
 CREATE INDEX IF NOT EXISTS idx_stripe_events_event_id ON stripe_events(event_id);
 CREATE INDEX IF NOT EXISTS idx_webhook_events_status ON webhook_events(status);
 CREATE INDEX IF NOT EXISTS idx_webhook_events_event_id ON webhook_events(event_id);
+CREATE INDEX IF NOT EXISTS idx_payment_attempts_user_id ON payment_attempts(user_id);
+CREATE INDEX IF NOT EXISTS idx_payment_attempts_status ON payment_attempts(status);
+CREATE INDEX IF NOT EXISTS idx_payment_attempts_checkout_session_id ON payment_attempts(checkout_session_id);
 
 -- 6. Add comments for documentation
 COMMENT ON TABLE stripe_events IS 'Tracks processed Stripe webhook events for idempotency';

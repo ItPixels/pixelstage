@@ -7,27 +7,53 @@ import { grantCreditsOnce, handleRefund, handleDispute } from "@/lib/payments";
 // Force Node.js runtime for Stripe webhooks (required for raw body access)
 export const runtime = "nodejs";
 
-// Price ID to credits mapping from environment variables (only if env exists)
-function getPriceToCreditsMap(): Record<string, number> {
-  const map: Record<string, number> = {};
-  
-  const price10 = process.env.STRIPE_PRICE_10;
-  const price50 = process.env.STRIPE_PRICE_50;
-  const price100 = process.env.STRIPE_PRICE_100;
-
-  if (price10) map[price10] = 10;
-  if (price50) map[price50] = 50;
-  if (price100) map[price100] = 100;
-
-  return map;
-}
-
 /**
- * Get credits amount from price ID
+ * Extract credits from price lookup_key or metadata
  */
-function getCreditsFromPriceId(priceId: string): number {
-  const PRICE_TO_CREDITS = getPriceToCreditsMap();
-  return PRICE_TO_CREDITS[priceId] || 0;
+async function getCreditsFromPrice(
+  stripe: ReturnType<typeof getStripe>,
+  priceId: string,
+): Promise<number | null> {
+  try {
+    const price = await stripe.prices.retrieve(priceId, {
+      expand: ["product"],
+    });
+
+    // Try lookup_key first (e.g., "credits_10" => 10)
+    if (price.lookup_key) {
+      const match = price.lookup_key.match(/^credits_(\d+)$/);
+      if (match) {
+        return parseInt(match[1], 10);
+      }
+    }
+
+    // Fallback to metadata.credits
+    if (price.metadata?.credits) {
+      const credits = parseInt(price.metadata.credits, 10);
+      if (!isNaN(credits)) {
+        return credits;
+      }
+    }
+
+    // Fallback to product metadata
+    if (
+      price.product &&
+      typeof price.product === "object" &&
+      !price.product.deleted &&
+      "metadata" in price.product &&
+      price.product.metadata?.credits
+    ) {
+      const credits = parseInt(price.product.metadata.credits, 10);
+      if (!isNaN(credits)) {
+        return credits;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`[Webhook] Failed to retrieve price ${priceId}:`, error);
+    return null;
+  }
 }
 
 /**
@@ -147,12 +173,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ received: true }, { status: 200 });
       }
 
-      // Map price ID to credits
-      const credits = getCreditsFromPriceId(priceId);
+      // Get credits from price lookup_key or metadata
+      const credits = await getCreditsFromPrice(stripe, priceId);
 
-      if (credits === 0) {
-        console.error(`[Webhook] Unknown price ID: ${priceId}`);
-        await storeFailedEvent(supabase, event.id, event.type, `Unknown price ID: ${priceId}`);
+      if (!credits || credits <= 0) {
+        console.error(
+          `[Webhook] Failed to extract credits from price ${priceId}. Check lookup_key or metadata.`,
+        );
+        await storeFailedEvent(
+          supabase,
+          event.id,
+          event.type,
+          `Failed to extract credits from price: ${priceId}`,
+        );
         return NextResponse.json({ received: true }, { status: 200 });
       }
 
@@ -186,6 +219,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           `[Webhook] Successfully processed payment ${session.id} for user ${userId}, credits: ${credits}`,
         );
       }
+
+      // Update payment_attempts status to completed
+      await supabase
+        .from("payment_attempts")
+        .update({
+          status: "completed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("checkout_session_id", session.id);
 
       return NextResponse.json({ received: true }, { status: 200 });
     } catch (err: any) {

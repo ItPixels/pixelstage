@@ -1,62 +1,150 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { CreditCard, Sparkles } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { CreditCard, Sparkles, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { createStripeSession } from "../../actions/stripe";
 
-type PricingTier = {
+type PricingPlan = {
   credits: number;
-  price: number;
-  pricePerCredit: number;
-  popular?: boolean;
+  priceId: string;
+  unitAmount: number;
+  currency: string;
+  formatted: string;
+  isPopular?: boolean;
 };
-
-const pricingTiers: PricingTier[] = [
-  {
-    credits: 10,
-    price: 9.99,
-    pricePerCredit: 0.99,
-  },
-  {
-    credits: 50,
-    price: 39.99,
-    pricePerCredit: 0.80,
-    popular: true,
-  },
-  {
-    credits: 100,
-    price: 69.99,
-    pricePerCredit: 0.70,
-  },
-];
 
 const CreditsPage = () => {
   const router = useRouter();
-  const [loadingTier, setLoadingTier] = useState<number | null>(null);
+  const searchParams = useSearchParams();
+  const [plans, setPlans] = useState<PricingPlan[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingTier, setLoadingTier] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const handlePurchase = async (tier: PricingTier) => {
-    setLoadingTier(tier.credits);
+  // Check for success/canceled params
+  useEffect(() => {
+    const success = searchParams.get("success");
+    const canceled = searchParams.get("canceled");
+
+    if (success === "1") {
+      toast.success("Оплата успешно завершена! Кредиты начислены.");
+      // Clean URL
+      router.replace("/dashboard/credits");
+    } else if (canceled === "1") {
+      toast.info("Оплата отменена. Вы можете попробовать снова.");
+      // Clean URL
+      router.replace("/dashboard/credits");
+    }
+  }, [searchParams, router]);
+
+  // Load pricing plans
+  useEffect(() => {
+    loadPlans();
+  }, []);
+
+  const loadPlans = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await fetch("/api/pricing");
+      if (!response.ok) {
+        throw new Error("Failed to load pricing plans");
+      }
+
+      const data = await response.json();
+      setPlans(data);
+    } catch (err) {
+      console.error("Error loading plans:", err);
+      setError("Unable to load plans");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePurchase = async (plan: PricingPlan) => {
+    setLoadingTier(plan.priceId);
 
     try {
-      const result = await createStripeSession(tier.credits, tier.price);
+      // Generate attemptId for idempotency
+      const attemptId = crypto.randomUUID();
 
-      if (result.success) {
-        router.push(result.url!);
-      } else {
-        toast.error(result.error || "Ошибка при создании сессии оплаты");
-        setLoadingTier(null);
+      const response = await fetch("/api/checkout/create-session", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          priceId: plan.priceId,
+          attemptId,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to create checkout session");
       }
-    } catch (error) {
-      console.error("Error:", error);
-      toast.error("Произошла ошибка при создании сессии оплаты");
+
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error("No checkout URL received");
+      }
+    } catch (err: any) {
+      console.error("Error:", err);
+      toast.error(err.message || "Произошла ошибка при создании сессии оплаты");
       setLoadingTier(null);
     }
   };
+
+  const calculatePricePerCredit = (plan: PricingPlan): number => {
+    return plan.unitAmount / 100 / plan.credits;
+  };
+
+  if (loading) {
+    return (
+      <div className="container mx-auto max-w-6xl px-6 py-8">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <RefreshCw className="h-8 w-8 animate-spin text-emerald-400 mx-auto mb-4" />
+            <p className="text-zinc-400">Загрузка тарифов...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || plans.length === 0) {
+    return (
+      <div className="container mx-auto max-w-6xl px-6 py-8">
+        <div className="mb-8 space-y-2">
+          <h1 className="text-3xl font-semibold text-white">Пополнить баланс</h1>
+          <p className="text-zinc-400">
+            Выберите тарифный план и пополните свой баланс кредитов
+          </p>
+        </div>
+
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center space-y-4">
+            <p className="text-zinc-400">{error || "No pricing plans available"}</p>
+            <Button
+              onClick={loadPlans}
+              variant="outline"
+              className="bg-white/5 border-white/10 text-white hover:bg-white/10"
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Попробовать снова
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto max-w-6xl px-6 py-8">
@@ -68,19 +156,20 @@ const CreditsPage = () => {
       </div>
 
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {pricingTiers.map((tier) => {
-          const isLoading = loadingTier === tier.credits;
+        {plans.map((plan) => {
+          const isLoading = loadingTier === plan.priceId;
+          const pricePerCredit = calculatePricePerCredit(plan);
 
           return (
             <Card
-              key={tier.credits}
+              key={plan.priceId}
               className={`relative overflow-hidden border-white/10 bg-white/5 ${
-                tier.popular
+                plan.isPopular
                   ? "ring-2 ring-emerald-400/50 shadow-lg shadow-emerald-500/20"
                   : ""
               }`}
             >
-              {tier.popular && (
+              {plan.isPopular && (
                 <div className="absolute right-0 top-0 bg-gradient-to-r from-emerald-500 to-emerald-600 px-3 py-1 text-xs font-semibold text-white">
                   Популярный
                 </div>
@@ -93,10 +182,13 @@ const CreditsPage = () => {
                   </div>
                   <div>
                     <CardTitle className="text-2xl text-white">
-                      {tier.credits} кредитов
+                      {plan.credits} кредитов
                     </CardTitle>
                     <p className="text-sm text-zinc-400">
-                      ${tier.pricePerCredit.toFixed(2)} за кредит
+                      {new Intl.NumberFormat("en-US", {
+                        style: "currency",
+                        currency: plan.currency.toUpperCase(),
+                      }).format(pricePerCredit)} за кредит
                     </p>
                   </div>
                 </div>
@@ -106,17 +198,22 @@ const CreditsPage = () => {
                 <div className="space-y-2">
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-semibold text-white">
-                      ${tier.price}
+                      {plan.formatted}
                     </span>
-                    <span className="text-sm text-zinc-400">USD</span>
+                    <span className="text-sm text-zinc-400">
+                      {plan.currency.toUpperCase()}
+                    </span>
                   </div>
                   <p className="text-xs text-zinc-500">
-                    ${tier.pricePerCredit.toFixed(2)} за кредит
+                    {new Intl.NumberFormat("en-US", {
+                      style: "currency",
+                      currency: plan.currency.toUpperCase(),
+                    }).format(pricePerCredit)} за кредит
                   </p>
                 </div>
 
                 <Button
-                  onClick={() => handlePurchase(tier)}
+                  onClick={() => handlePurchase(plan)}
                   disabled={isLoading}
                   className="w-full bg-emerald-500 hover:bg-emerald-600 text-white"
                 >
@@ -142,4 +239,3 @@ const CreditsPage = () => {
 };
 
 export default CreditsPage;
-
