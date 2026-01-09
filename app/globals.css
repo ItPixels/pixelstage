@@ -1,9 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* Dubai Luxury Design System */
+/* Dubai Luxury Design System - PixelStage SaaS Platform */
 @theme {
-  /* Dubai Luxury Colors */
+  /* Luxury Color Palette */
   --color-deep-black: #050505;
   --color-gold: #C4B454;
   --color-off-white: #E3D3BD;
@@ -63,6 +63,14 @@
 
 /* Glassmorphism utilities */
 @layer utilities {
+  /* Base glass effect */
+  .glass {
+    background-color: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
   .glass-panel {
     background-color: rgba(255, 255, 255, 0.05);
     backdrop-filter: blur(16px);

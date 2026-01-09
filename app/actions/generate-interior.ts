@@ -9,7 +9,7 @@ import {
 } from "@/lib/supabase";
 
 export type RoomType = "living-room" | "bedroom" | "majlis" | "office";
-export type Style = "modern-luxury" | "minimalist" | "arabic-traditional" | "japandi";
+export type Style = "modern-islamic" | "luxury-minimal" | "boho";
 export type { FluxModel } from "@/lib/replicate";
 
 export type GenerateInteriorResult =
@@ -38,16 +38,15 @@ function buildPrompt(
 
   // Add style context
   const styleContext: Record<Style, string> = {
-    "modern-luxury": "modern luxury interior design, contemporary, high-end finishes",
-    minimalist: "minimalist interior design, clean lines, simple elegance",
-    "arabic-traditional": "traditional arabian interior, ornate details, rich textures",
-    japandi: "japandi interior design, japanese minimalism meets scandinavian style",
+    "modern-islamic": "modern islamic interior design, contemporary arabian style, geometric patterns, luxury finishes",
+    "luxury-minimal": "luxury minimalist interior design, clean lines, premium materials, sophisticated elegance",
+    "boho": "bohemian interior design, eclectic style, natural textures, warm colors, relaxed luxury",
   };
 
   enhancedPrompt = `${enhancedPrompt}, ${styleContext[style]}`;
 
-  // Special handling for Majlis and Arabic Traditional
-  if (roomType === "majlis" || style === "arabic-traditional") {
+  // Special handling for Majlis and Modern Islamic style
+  if (roomType === "majlis" || style === "modern-islamic") {
     enhancedPrompt = `${enhancedPrompt}, luxury arabian interior, gold accents, low seating, marble floor, panoramic window with dubai skyline view`;
   }
 

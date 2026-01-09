@@ -34,7 +34,7 @@ export async function generateMetadata({
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://pixelstage.com";
   const isArabic = locale === "ar";
 
-  const title = "PixelStage - #1 AI Real Estate Staging in Dubai";
+  const title = "PixelStage - AI Real Estate Staging Dubai";
   const description = isArabic
     ? "منصة PixelStage الرائدة في دبي لتزيين العقارات بالذكاء الاصطناعي. حوّل المساحات الفارغة إلى قوائم فاخرة في ثوانٍ."
     : "Transform empty properties into stunning, fully-furnished spaces with AI. Dubai's #1 virtual staging platform for luxury real estate.";

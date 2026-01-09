@@ -32,7 +32,7 @@ const Navbar = () => {
                 "transition-all duration-300"
               )}
             >
-              <Link href={`/${locale}/sign-in`}>Login</Link>
+              <Link href={`/${locale}/sign-in`}>Sign In</Link>
             </Button>
           </SignedOut>
 
