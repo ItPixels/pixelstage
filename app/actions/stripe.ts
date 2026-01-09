@@ -4,7 +4,16 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { getStripe } from "@/lib/stripe";
 import { validateCredits } from "@/lib/validations";
 
-// Credits to Price ID mapping - only include if env var exists
+/**
+ * Validate that a Stripe ID is a Price ID (starts with "price_")
+ */
+function isValidPriceId(id: string): boolean {
+  return typeof id === "string" && id.startsWith("price_");
+}
+
+/**
+ * Credits to Price ID mapping - only include if env var exists and is valid price_* ID
+ */
 function getCreditsToPriceIdMap(): Record<number, string> {
   const map: Record<number, string> = {};
   
@@ -12,9 +21,36 @@ function getCreditsToPriceIdMap(): Record<number, string> {
   const price50 = process.env.STRIPE_PRICE_50;
   const price100 = process.env.STRIPE_PRICE_100;
 
-  if (price10) map[10] = price10;
-  if (price50) map[50] = price50;
-  if (price100) map[100] = price100;
+  // Only add if exists AND starts with "price_"
+  if (price10) {
+    if (!isValidPriceId(price10)) {
+      console.error(
+        `[Stripe] STRIPE_PRICE_10 is not a valid Price ID (expected price_*, got: ${price10})`,
+      );
+    } else {
+      map[10] = price10;
+    }
+  }
+
+  if (price50) {
+    if (!isValidPriceId(price50)) {
+      console.error(
+        `[Stripe] STRIPE_PRICE_50 is not a valid Price ID (expected price_*, got: ${price50})`,
+      );
+    } else {
+      map[50] = price50;
+    }
+  }
+
+  if (price100) {
+    if (!isValidPriceId(price100)) {
+      console.error(
+        `[Stripe] STRIPE_PRICE_100 is not a valid Price ID (expected price_*, got: ${price100})`,
+      );
+    } else {
+      map[100] = price100;
+    }
+  }
 
   return map;
 }
@@ -71,6 +107,16 @@ export async function createStripeSession(
       };
     }
 
+    // Strict validation: priceId MUST start with "price_"
+    if (!isValidPriceId(priceId)) {
+      const errorMsg = `Expected price_ id, got ${priceId}`;
+      console.error(`[Stripe] ${errorMsg} for credits=${normalizedCredits}`);
+      return {
+        error: errorMsg,
+        success: false,
+      };
+    }
+
     const stripe = getStripe();
     const domain =
       process.env.NEXT_PUBLIC_APP_URL ||
@@ -83,6 +129,17 @@ export async function createStripeSession(
 
     // Generate request ID for tracking
     const requestId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+    // Log before creating checkout session
+    console.log(
+      `[Stripe] Creating checkout session: credits=${normalizedCredits}, priceId=${priceId}, userId=${userId}`,
+    );
+
+    if (!priceId.startsWith("price_")) {
+      console.error(
+        `[Stripe] WARNING: priceId does not start with "price_": ${priceId}`,
+      );
+    }
 
     const session = await stripe.checkout.sessions.create(
       {
