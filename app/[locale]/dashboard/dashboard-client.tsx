@@ -35,6 +35,7 @@ export function DashboardClient() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [balance, setBalance] = useState<number | null>(null);
+  const [isLoadingBalance, setIsLoadingBalance] = useState(true);
   const [gallery, setGallery] = useState<GalleryImage[]>([]);
   const [isLoadingGallery, setIsLoadingGallery] = useState(true);
   const [showBuyModal, setShowBuyModal] = useState(false);
@@ -46,10 +47,12 @@ export function DashboardClient() {
   }, []);
 
   const loadBalance = async () => {
+    setIsLoadingBalance(true);
     const result = await getBalance();
     if (result.success) {
       setBalance(result.balance);
     }
+    setIsLoadingBalance(false);
   };
 
   const loadGallery = async () => {
@@ -96,8 +99,7 @@ export function DashboardClient() {
         toast.success("Interior design generated successfully!");
         
         // Reload balance and gallery
-        await loadBalance();
-        await loadGallery();
+        await Promise.all([loadBalance(), loadGallery()]);
 
         // Check if user spent their last credit
         const newBalanceResult = await getBalance();
@@ -139,22 +141,37 @@ export function DashboardClient() {
                 Transform your space with AI-powered interior design
               </p>
             </div>
-            {balance !== null && (
-              <div className="text-end space-y-2">
-                <div className="flex items-center gap-2 justify-end">
-                  {balance > 0 && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-gold/20 text-gold border border-gold/30">
-                      <BadgeCheck className="w-3 h-3" />
-                      Free Trial Active
-                    </span>
-                  )}
+            <div className="text-end space-y-2">
+              {isLoadingBalance ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-5 w-24 ms-auto" />
+                  <Skeleton className="h-8 w-16 ms-auto" />
                 </div>
-                <div>
-                  <p className="text-sm text-off-white/60 mb-1">Credits</p>
-                  <p className="text-2xl font-bold text-gold">{balance}</p>
-                </div>
-              </div>
-            )}
+              ) : balance !== null ? (
+                <>
+                  <div className="flex items-center gap-2 justify-end">
+                    {balance === 3 && (
+                      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-gold/20 text-gold border border-gold/30">
+                        <BadgeCheck className="w-3 h-3" />
+                        Free Trial: 3 left
+                      </span>
+                    )}
+                    {balance > 0 && balance !== 3 && (
+                      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-gold/20 text-gold border border-gold/30">
+                        <BadgeCheck className="w-3 h-3" />
+                        Free Trial Active
+                      </span>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm text-off-white/60 mb-1">Credits</p>
+                    <p className="text-2xl font-bold text-gold">{balance}</p>
+                  </div>
+                </>
+              ) : (
+                <div className="text-sm text-off-white/60">Loading...</div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -232,12 +249,13 @@ export function DashboardClient() {
                       handleGenerate();
                     }
                   }}
-                  disabled={isGenerating}
+                  disabled={isGenerating || (balance !== null && balance === 0)}
                   className={cn(
                     "w-full bg-gradient-to-r from-gold to-gold/80",
                     "text-deep-black font-semibold",
                     "hover:from-gold/90 hover:to-gold/70",
                     "disabled:opacity-50 disabled:cursor-not-allowed",
+                    // Don't visually disable if balance is null (loading) or > 0
                     balance === 0 && "cursor-pointer",
                   )}
                   size="lg"

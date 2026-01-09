@@ -71,7 +71,59 @@ export const generateInterior = async (
       return { success: false, error: "Authentication required" };
     }
 
-    // 2. Check balance
+    // 2. Lazy Initialization: Check if user profile exists, create if not
+    const supabase = getSupabaseAdmin();
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .select("id, balance")
+      .eq("id", userId)
+      .maybeSingle();
+
+    // If user doesn't exist (null data) or error occurred, create profile
+    // Note: maybeSingle() returns null data when record not found
+    // Also check for PostgREST error codes (PGRST116 = not found)
+    const isUserNotFound =
+      !userData ||
+      (userError &&
+        typeof userError === "object" &&
+        "code" in userError &&
+        String((userError as { code?: string }).code) === "PGRST116");
+
+    if (isUserNotFound) {
+      console.log(
+        `[Lazy Init] User ${userId} profile not found, creating with 3 free credits`,
+      );
+
+      // Create user profile with 3 free credits
+      const { error: insertError } = await supabase.from("users").insert({
+        id: userId,
+        balance: 3, // Give 3 free credits on lazy initialization
+      });
+
+      if (insertError) {
+        // If insert fails (e.g., race condition - user was created concurrently),
+        // try to fetch again
+        if (insertError.code === "23505") {
+          // Unique constraint violation - user was created concurrently
+          console.log(
+            `[Lazy Init] User ${userId} was created concurrently, fetching balance`,
+          );
+          // Continue to balance check below
+        } else {
+          console.error("Error creating user profile:", insertError);
+          return {
+            success: false,
+            error: "Error initializing user profile",
+          };
+        }
+      } else {
+        console.log(
+          `[Lazy Init] User ${userId} profile created successfully with 3 credits`,
+        );
+      }
+    }
+
+    // 3. Check balance (after ensuring user exists)
     const balance = await getUserBalance(userId);
 
     if (balance === null) {
@@ -82,18 +134,18 @@ export const generateInterior = async (
       return { success: false, error: "insufficient_balance" };
     }
 
-    // 3. Decrease balance
+    // 4. Decrease balance
     const newBalance = await decreaseUserBalance(userId, 1);
 
     if (newBalance === null) {
       return { success: false, error: "Error deducting credits" };
     }
 
-    // 4. Build prompt
+    // 5. Build prompt
     const basePrompt = customPrompt || `redesign this ${roomType} in ${style} style`;
     const enhancedPrompt = buildPrompt(basePrompt, roomType, style);
 
-    // 5. Prepare Replicate input
+    // 6. Prepare Replicate input
     const replicate = getReplicateClient();
     const modelId = FLUX_MODELS[model];
 
@@ -117,7 +169,7 @@ export const generateInterior = async (
       // TODO: Implement image upload to temporary storage (S3, Cloudinary, etc.)
     }
 
-    // 6. Call Replicate API
+    // 7. Call Replicate API
     let imageUrl: string;
 
     try {
@@ -152,8 +204,7 @@ export const generateInterior = async (
       };
     }
 
-    // 7. Save to Supabase
-    const supabase = getSupabaseAdmin();
+    // 8. Save to Supabase
     const { error: insertError } = await supabase
       .from("generated_images")
       .insert({
@@ -176,7 +227,7 @@ export const generateInterior = async (
       // Don't refund, image was generated
     }
 
-    // 8. Return result
+    // 9. Return result
     return { success: true, imageUrl };
   } catch (error) {
     console.error("Error in generateInterior action:", error);
