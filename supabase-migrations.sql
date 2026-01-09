@@ -36,6 +36,18 @@ CREATE TABLE IF NOT EXISTS credit_ledger (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 3b. Webhook Events table (for failed event replay)
+CREATE TABLE IF NOT EXISTS webhook_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id TEXT UNIQUE NOT NULL,
+  type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'failed', -- failed, retrying, processed
+  error_message TEXT,
+  retry_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  processed_at TIMESTAMPTZ
+);
+
 -- 4. Ensure users table has balance column
 DO $$ 
 BEGIN
@@ -54,6 +66,8 @@ CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
 CREATE INDEX IF NOT EXISTS idx_credit_ledger_user_id ON credit_ledger(user_id);
 CREATE INDEX IF NOT EXISTS idx_credit_ledger_payment_id ON credit_ledger(payment_id);
 CREATE INDEX IF NOT EXISTS idx_stripe_events_event_id ON stripe_events(event_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_status ON webhook_events(status);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_event_id ON webhook_events(event_id);
 
 -- 6. Add comments for documentation
 COMMENT ON TABLE stripe_events IS 'Tracks processed Stripe webhook events for idempotency';

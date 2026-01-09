@@ -7,25 +7,56 @@ import { grantCreditsOnce, handleRefund, handleDispute } from "@/lib/payments";
 // Force Node.js runtime for Stripe webhooks (required for raw body access)
 export const runtime = "nodejs";
 
-// Price ID to credits mapping from environment variables
-const PRICE_TO_CREDITS: Record<string, number> = {
-  [process.env.STRIPE_PRICE_10 || ""]: 10,
-  [process.env.STRIPE_PRICE_50 || ""]: 50,
-  [process.env.STRIPE_PRICE_100 || ""]: 100,
-};
+// Price ID to credits mapping from environment variables (only if env exists)
+function getPriceToCreditsMap(): Record<string, number> {
+  const map: Record<string, number> = {};
+  
+  const price10 = process.env.STRIPE_PRICE_10;
+  const price50 = process.env.STRIPE_PRICE_50;
+  const price100 = process.env.STRIPE_PRICE_100;
+
+  if (price10) map[price10] = 10;
+  if (price50) map[price50] = 50;
+  if (price100) map[price100] = 100;
+
+  return map;
+}
 
 /**
  * Get credits amount from price ID
  */
 function getCreditsFromPriceId(priceId: string): number {
+  const PRICE_TO_CREDITS = getPriceToCreditsMap();
   return PRICE_TO_CREDITS[priceId] || 0;
+}
+
+/**
+ * Store failed webhook event for replay
+ */
+async function storeFailedEvent(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  eventId: string,
+  eventType: string,
+  error: string,
+) {
+  try {
+    await supabase.from("webhook_events").insert({
+      event_id: eventId,
+      type: eventType,
+      status: "failed",
+      error_message: error,
+      retry_count: 0,
+    });
+  } catch (err) {
+    console.error("[Webhook] Failed to store failed event:", err);
+  }
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!webhookSecret) {
-    console.error("STRIPE_WEBHOOK_SECRET is not configured");
+    console.error("[Webhook] STRIPE_WEBHOOK_SECRET is not configured");
     return NextResponse.json(
       { error: "Webhook secret not configured" },
       { status: 500 },
@@ -36,8 +67,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const supabase = getSupabaseAdmin();
 
   // Read raw body as ArrayBuffer for signature verification
-  const arrayBuffer = await req.arrayBuffer();
-  const body = Buffer.from(arrayBuffer);
+  let body: Buffer;
+  try {
+    const arrayBuffer = await req.arrayBuffer();
+    body = Buffer.from(arrayBuffer);
+  } catch (err: any) {
+    console.error("[Webhook] Failed to read request body:", err);
+    return NextResponse.json(
+      { error: "Failed to read request body" },
+      { status: 400 },
+    );
+  }
 
   const signature = req.headers.get("stripe-signature");
 
@@ -48,150 +88,199 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  let event;
+  let event: Stripe.Event;
 
   try {
     // Verify webhook signature using raw body
     event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
   } catch (err: any) {
-    console.error("Webhook signature verification failed:", err.message);
+    console.error("[Webhook] Signature verification failed:", err.message);
+    // Signature failure = 400, don't store as failed event
     return NextResponse.json(
       { error: "Webhook signature verification failed" },
       { status: 400 },
     );
   }
 
+  // Always respond 200 after signature verification (except signature fail)
+  // This prevents Stripe from retrying on our errors
+
   // Handle checkout.session.completed
   if (event.type === "checkout.session.completed") {
-    const session = event.data.object as Stripe.Checkout.Session;
+    try {
+      const session = event.data.object as Stripe.Checkout.Session;
 
-    // Require payment_status to be "paid"
-    if (session.payment_status !== "paid") {
-      console.log(
-        `Session ${session.id} payment_status is ${session.payment_status}, skipping`,
-      );
+      // Require payment_status to be "paid"
+      if (session.payment_status !== "paid") {
+        console.log(
+          `[Webhook] Session ${session.id} payment_status is ${session.payment_status}, skipping`,
+        );
+        return NextResponse.json({ received: true }, { status: 200 });
+      }
+
+      // Require userId in metadata
+      const userId = session.metadata?.userId;
+      if (!userId) {
+        console.error(`[Webhook] Session ${session.id} missing userId in metadata`);
+        await storeFailedEvent(supabase, event.id, event.type, "Missing userId");
+        return NextResponse.json({ received: true }, { status: 200 });
+      }
+
+      // Retrieve full session with line items to get price ID
+      let fullSession: Stripe.Checkout.Session;
+      try {
+        fullSession = await stripe.checkout.sessions.retrieve(session.id, {
+          expand: ["line_items.data.price"],
+        });
+      } catch (err: any) {
+        console.error(`[Webhook] Failed to retrieve session ${session.id}:`, err);
+        await storeFailedEvent(supabase, event.id, event.type, `Failed to retrieve session: ${err.message}`);
+        return NextResponse.json({ received: true }, { status: 200 });
+      }
+
+      const lineItem = fullSession.line_items?.data[0];
+      const priceId = lineItem?.price?.id;
+
+      if (!priceId) {
+        console.error(`[Webhook] Session ${session.id} missing price ID`);
+        await storeFailedEvent(supabase, event.id, event.type, "Missing price ID");
+        return NextResponse.json({ received: true }, { status: 200 });
+      }
+
+      // Map price ID to credits
+      const credits = getCreditsFromPriceId(priceId);
+
+      if (credits === 0) {
+        console.error(`[Webhook] Unknown price ID: ${priceId}`);
+        await storeFailedEvent(supabase, event.id, event.type, `Unknown price ID: ${priceId}`);
+        return NextResponse.json({ received: true }, { status: 200 });
+      }
+
+      // Get payment intent ID if available
+      const paymentIntentId =
+        typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : session.payment_intent?.id;
+
+      // Grant credits idempotently
+      const result = await grantCreditsOnce(supabase, {
+        sessionId: session.id,
+        userId,
+        credits,
+        amount: session.amount_total ? session.amount_total / 100 : 0,
+        currency: session.currency || "usd",
+        paymentIntentId,
+        eventId: event.id,
+      });
+
+      if (!result.success) {
+        console.error(`[Webhook] Failed to grant credits: ${result.error}`);
+        await storeFailedEvent(supabase, event.id, event.type, result.error || "Failed to grant credits");
+        return NextResponse.json({ received: true }, { status: 200 });
+      }
+
+      if (result.alreadyProcessed) {
+        console.log(`[Webhook] Payment ${session.id} was already processed`);
+      } else {
+        console.log(
+          `[Webhook] Successfully processed payment ${session.id} for user ${userId}, credits: ${credits}`,
+        );
+      }
+
+      return NextResponse.json({ received: true }, { status: 200 });
+    } catch (err: any) {
+      console.error("[Webhook] Error processing checkout.session.completed:", err);
+      await storeFailedEvent(supabase, event.id, event.type, err.message || "Unknown error");
       return NextResponse.json({ received: true }, { status: 200 });
     }
+  }
 
-    // Require userId in metadata
-    const userId = session.metadata?.userId;
-    if (!userId) {
-      console.error(`Session ${session.id} missing userId in metadata`);
-      return NextResponse.json(
-        { error: "Missing userId in session metadata" },
-        { status: 400 },
-      );
-    }
+  // Handle payment_intent.succeeded (reconcile, don't duplicate credits)
+  if (event.type === "payment_intent.succeeded") {
+    const paymentIntent = event.data.object as Stripe.PaymentIntent;
+    console.log(
+      `[Webhook] Payment intent ${paymentIntent.id} succeeded (reconcile only, credits already granted via checkout.session.completed)`,
+    );
+    return NextResponse.json({ received: true }, { status: 200 });
+  }
 
-    // Retrieve full session with line items to get price ID
-    const fullSession = await stripe.checkout.sessions.retrieve(session.id, {
-      expand: ["line_items.data.price"],
-    });
-
-    const lineItem = fullSession.line_items?.data[0];
-    const priceId = lineItem?.price?.id;
-
-    if (!priceId) {
-      console.error(`Session ${session.id} missing price ID`);
-      return NextResponse.json(
-        { error: "Missing price ID in session" },
-        { status: 400 },
-      );
-    }
-
-    // Map price ID to credits
-    const credits = getCreditsFromPriceId(priceId);
-
-    if (credits === 0) {
-      console.error(`Unknown price ID: ${priceId}`);
-      return NextResponse.json(
-        { error: "Unknown price ID" },
-        { status: 400 },
-      );
-    }
-
-    // Get payment intent ID if available
-    const paymentIntentId =
-      typeof session.payment_intent === "string"
-        ? session.payment_intent
-        : session.payment_intent?.id;
-
-    // Grant credits idempotently
-    const result = await grantCreditsOnce(supabase, {
-      sessionId: session.id,
-      userId,
-      credits,
-      amount: session.amount_total ? session.amount_total / 100 : 0,
-      currency: session.currency || "usd",
-      paymentIntentId,
-      eventId: event.id,
-    });
-
-    if (!result.success) {
-      console.error(`Failed to grant credits: ${result.error}`);
-      return NextResponse.json(
-        { error: result.error || "Failed to grant credits" },
-        { status: 500 },
-      );
-    }
-
-    if (result.alreadyProcessed) {
-      console.log(`Payment ${session.id} was already processed`);
-    }
-
+  // Handle async payment events (future-proof)
+  if (
+    event.type === "checkout.session.async_payment_succeeded" ||
+    event.type === "checkout.session.async_payment_failed"
+  ) {
+    const session = event.data.object as Stripe.Checkout.Session;
+    console.log(
+      `[Webhook] Async payment ${event.type} for session ${session.id} (not implemented yet)`,
+    );
     return NextResponse.json({ received: true }, { status: 200 });
   }
 
   // Handle refund events
   if (event.type === "charge.refunded" || event.type === "refund.created") {
-    const charge =
-      event.type === "charge.refunded"
-        ? (event.data.object as Stripe.Charge)
-        : ((event.data.object as Stripe.Refund).charge as string);
+    try {
+      const charge =
+        event.type === "charge.refunded"
+          ? (event.data.object as Stripe.Charge)
+          : ((event.data.object as Stripe.Refund).charge as string);
 
-    const paymentIntentId =
-      typeof charge === "string"
-        ? charge
-        : (charge as Stripe.Charge).payment_intent as string;
+      const paymentIntentId =
+        typeof charge === "string"
+          ? charge
+          : (charge as Stripe.Charge).payment_intent as string;
 
-    if (!paymentIntentId) {
-      console.error("Missing payment_intent_id in refund event");
+      if (!paymentIntentId) {
+        console.error("[Webhook] Missing payment_intent_id in refund event");
+        return NextResponse.json({ received: true }, { status: 200 });
+      }
+
+      const result = await handleRefund(supabase, {
+        paymentIntentId,
+        clawBackCredits: true, // Claw back credits only if they were granted by this payment
+      });
+
+      if (!result.success) {
+        console.error(`[Webhook] Failed to handle refund: ${result.error}`);
+      } else {
+        console.log(`[Webhook] Successfully processed refund for payment ${paymentIntentId}`);
+      }
+
+      return NextResponse.json({ received: true }, { status: 200 });
+    } catch (err: any) {
+      console.error("[Webhook] Error processing refund:", err);
       return NextResponse.json({ received: true }, { status: 200 });
     }
-
-    const result = await handleRefund(supabase, {
-      paymentIntentId,
-      clawBackCredits: true, // Set to false if you don't want to claw back credits
-    });
-
-    if (!result.success) {
-      console.error(`Failed to handle refund: ${result.error}`);
-    }
-
-    return NextResponse.json({ received: true }, { status: 200 });
   }
 
   // Handle dispute events
   if (event.type === "charge.dispute.created") {
-    const dispute = event.data.object as Stripe.Dispute;
-    const paymentIntentId = dispute.payment_intent as string;
+    try {
+      const dispute = event.data.object as Stripe.Dispute;
+      const paymentIntentId = dispute.payment_intent as string;
 
-    if (!paymentIntentId) {
-      console.error("Missing payment_intent_id in dispute event");
+      if (!paymentIntentId) {
+        console.error("[Webhook] Missing payment_intent_id in dispute event");
+        return NextResponse.json({ received: true }, { status: 200 });
+      }
+
+      const result = await handleDispute(supabase, {
+        paymentIntentId,
+      });
+
+      if (!result.success) {
+        console.error(`[Webhook] Failed to handle dispute: ${result.error}`);
+      } else {
+        console.log(`[Webhook] Successfully flagged dispute for payment ${paymentIntentId}`);
+      }
+
+      return NextResponse.json({ received: true }, { status: 200 });
+    } catch (err: any) {
+      console.error("[Webhook] Error processing dispute:", err);
       return NextResponse.json({ received: true }, { status: 200 });
     }
-
-    const result = await handleDispute(supabase, {
-      paymentIntentId,
-    });
-
-    if (!result.success) {
-      console.error(`Failed to handle dispute: ${result.error}`);
-    }
-
-    return NextResponse.json({ received: true }, { status: 200 });
   }
 
   // Acknowledge other events
+  console.log(`[Webhook] Received unhandled event type: ${event.type}`);
   return NextResponse.json({ received: true }, { status: 200 });
 }
