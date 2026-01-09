@@ -1,13 +1,21 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
 const isProtectedRoute = createRouteMatcher(["/dashboard(.*)"]);
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/api/webhooks(.*)",
+]);
 
 export default clerkMiddleware(async (auth, req) => {
+  // Webhooks и landing page должны быть публичными
+  if (isPublicRoute(req)) {
+    return;
+  }
+
+  // Защищаем dashboard маршруты
   if (isProtectedRoute(req)) {
-    // 1. Получаем данные пользователя (ждем ответ)
     const { userId, redirectToSignIn } = await auth();
 
-    // 2. Если пользователя нет (не залогинен) -> перенаправляем на вход
     if (!userId) {
       return redirectToSignIn();
     }
@@ -16,7 +24,9 @@ export default clerkMiddleware(async (auth, req) => {
 
 export const config = {
   matcher: [
-    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
-    '/(api|trpc)(.*)',
+    // Skip Next.js internals and all static files, unless found in search params
+    "/((?!_next|[^?]*\\.(?:html?|ico|png|jpg|jpeg|gif|svg|ttf|woff|woff2)).*)",
+    // Always run for API routes
+    "/(api|trpc)(.*)",
   ],
 };
