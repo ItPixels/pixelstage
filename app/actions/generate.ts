@@ -56,17 +56,20 @@ export const generate = async (
       return { success: false, error: "Ошибка списания кредитов" };
     }
 
-    // 4. Отправляем запрос в Replicate API (модель black-forest-labs/flux-schnell)
+    // 4. Отправляем запрос в Replicate API (модель black-forest-labs/flux-1.1-pro)
     const { width, height } = aspectRatioToSize[aspectRatio];
+
+    // Append sticker keywords to the user's prompt
+    const enhancedPrompt = `${prompt}, die-cut sticker, white thick border, vector style, flat color, isolated on white background`;
 
     let imageUrl: string;
 
     try {
       const output = (await replicate.run(
-        "black-forest-labs/flux-schnell",
+        "black-forest-labs/flux-1.1-pro",
         {
           input: {
-            prompt,
+            prompt: enhancedPrompt,
             width,
             height,
           },
