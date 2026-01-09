@@ -47,8 +47,8 @@ export const generateImage = async (
     // Генерируем изображение через Replicate (Flux)
     const { width, height } = aspectRatioToSize[aspectRatio];
 
-    // Append sticker keywords to the user's prompt
-    const enhancedPrompt = `${prompt}, die-cut sticker, white thick border, vector style, flat color, isolated on white background`;
+    // Append coloring book keywords to the user's prompt
+    const enhancedPrompt = `${prompt}, coloring book page, black and white, clean lines, no shading, low detail, white background`;
 
     const output = (await replicate.run(
       "black-forest-labs/flux-1.1-pro",

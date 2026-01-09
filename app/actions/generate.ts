@@ -59,8 +59,8 @@ export const generate = async (
     // 4. Отправляем запрос в Replicate API (модель black-forest-labs/flux-1.1-pro)
     const { width, height } = aspectRatioToSize[aspectRatio];
 
-    // Append sticker keywords to the user's prompt
-    const enhancedPrompt = `${prompt}, die-cut sticker, white thick border, vector style, flat color, isolated on white background`;
+    // Append coloring book keywords to the user's prompt
+    const enhancedPrompt = `${prompt}, coloring book page, black and white, clean lines, no shading, low detail, white background`;
 
     let imageUrl: string;
 
