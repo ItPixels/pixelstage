@@ -1,0 +1,25 @@
+{
+  "common": {
+    "welcome": "Welcome",
+    "home": "Home",
+    "about": "About",
+    "contact": "Contact",
+    "language": "Language"
+  },
+  "navigation": {
+    "dashboard": "Dashboard",
+    "generate": "Generate",
+    "gallery": "Gallery",
+    "credits": "Credits",
+    "profile": "Profile"
+  },
+  "generator": {
+    "title": "AI Image Generator",
+    "prompt": "Enter your prompt",
+    "generate": "Generate Image",
+    "generating": "Generating...",
+    "success": "Image generated successfully",
+    "error": "Failed to generate image"
+  }
+}
+
