@@ -1,18 +1,17 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/api/webhooks(.*)",
+]);
 
-  // Пропускаем вебхуки без ограничений
-  if (pathname.startsWith("/api/webhooks")) {
-    return NextResponse.next();
+export default clerkMiddleware((auth, req) => {
+  if (!isPublicRoute(req)) {
+    auth().protect();
   }
+});
 
-  // Все остальные маршруты пропускаем
-  return NextResponse.next();
-}
-
+// Recommended matcher by Clerk for App Router
 export const config = {
   matcher: ["/((?!.*\\..*|_next).*)", "/", "/(api|trpc)(.*)"],
 };
