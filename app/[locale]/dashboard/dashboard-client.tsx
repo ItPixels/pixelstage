@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useLocale } from "next-intl";
-import { Sparkles, Loader2, Image as ImageIcon } from "lucide-react";
+import { Sparkles, Loader2, Image as ImageIcon, BadgeCheck } from "lucide-react";
 import { toast } from "sonner";
 import Image from "next/image";
 import { ImageDropzone } from "@/components/ui/image-dropzone";
@@ -64,15 +64,24 @@ export function DashboardClient() {
   const handleGenerate = async () => {
     if (isGenerating) return;
 
-    // Check balance first
-    const balanceResult = await getBalance();
-    if (!balanceResult.success || balanceResult.balance === 0) {
+    // Check balance first (use current state, then verify with API)
+    if (balance === null) {
+      const balanceResult = await getBalance();
+      if (!balanceResult.success || balanceResult.balance === 0) {
+        setShowBuyModal(true);
+        return;
+      }
+      setBalance(balanceResult.balance);
+    } else if (balance === 0) {
       setShowBuyModal(true);
       return;
     }
 
     setIsGenerating(true);
     setGeneratedImage(null);
+
+    // Store current balance to check if it was the last credit
+    const balanceBeforeGeneration = balance || 0;
 
     try {
       const result = await generateInterior(
@@ -85,9 +94,22 @@ export function DashboardClient() {
       if (result.success) {
         setGeneratedImage(result.imageUrl);
         toast.success("Interior design generated successfully!");
+        
         // Reload balance and gallery
         await loadBalance();
         await loadGallery();
+
+        // Check if user spent their last credit
+        const newBalanceResult = await getBalance();
+        if (
+          newBalanceResult.success &&
+          balanceBeforeGeneration === 1 &&
+          newBalanceResult.balance === 0
+        ) {
+          toast.info("Hope you liked it! Upgrade to create more.", {
+            duration: 5000,
+          });
+        }
       } else {
         if (result.error === "insufficient_balance") {
           setShowBuyModal(true);
@@ -118,9 +140,19 @@ export function DashboardClient() {
               </p>
             </div>
             {balance !== null && (
-              <div className="text-end">
-                <p className="text-sm text-off-white/60 mb-1">Credits</p>
-                <p className="text-2xl font-bold text-gold">{balance}</p>
+              <div className="text-end space-y-2">
+                <div className="flex items-center gap-2 justify-end">
+                  {balance > 0 && (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-gold/20 text-gold border border-gold/30">
+                      <BadgeCheck className="w-3 h-3" />
+                      Free Trial Active
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm text-off-white/60 mb-1">Credits</p>
+                  <p className="text-2xl font-bold text-gold">{balance}</p>
+                </div>
               </div>
             )}
           </div>
@@ -193,13 +225,20 @@ export function DashboardClient() {
 
                 {/* Generate Button */}
                 <Button
-                  onClick={handleGenerate}
+                  onClick={() => {
+                    if (balance === 0) {
+                      setShowBuyModal(true);
+                    } else {
+                      handleGenerate();
+                    }
+                  }}
                   disabled={isGenerating}
                   className={cn(
                     "w-full bg-gradient-to-r from-gold to-gold/80",
                     "text-deep-black font-semibold",
                     "hover:from-gold/90 hover:to-gold/70",
                     "disabled:opacity-50 disabled:cursor-not-allowed",
+                    balance === 0 && "cursor-pointer",
                   )}
                   size="lg"
                 >
@@ -208,6 +247,11 @@ export function DashboardClient() {
                       <Loader2 className="w-4 h-4 me-2 animate-spin" />
                       Generating...
                     </>
+                  ) : balance === 0 ? (
+                    <>
+                      <Sparkles className="w-4 h-4 me-2" />
+                      Buy Credits to Generate
+                    </>
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4 me-2" />
@@ -215,6 +259,14 @@ export function DashboardClient() {
                     </>
                   )}
                 </Button>
+                
+                {/* Show message if no credits */}
+                {balance === 0 && (
+                  <p className="text-xs text-off-white/60 text-center mt-2">
+                    You need credits to generate designs. Click the button above
+                    to purchase a credit pack.
+                  </p>
+                )}
               </CardContent>
             </Card>
           </aside>
